@@ -4,6 +4,30 @@ from pyrfuniverse.side_channel.side_channel import (
     OutgoingMessage,
 )
 
+import pyrfuniverse.utils.rfuniverse_utility as utility
+
+def GrabRelease(kwargs: dict) -> OutgoingMessage:
+    compulsory_params = ['id', 'grab']
+    optional_params = []
+    utility.CheckKwargs(kwargs, compulsory_params)
+    msg = OutgoingMessage()
+
+    msg.write_int32(kwargs['id'])
+    msg.write_string('GrabRelease')
+    msg.write_bool(kwargs['grab'])
+    return msg
+
+def Reset(kwargs: dict) -> OutgoingMessage:
+    compulsory_params = ['id', 'reset']
+    optional_params = []
+    utility.CheckKwargs(kwargs, compulsory_params)
+    msg = OutgoingMessage()
+
+    msg.write_int32(kwargs['id'])
+    msg.write_string('Reset')
+    msg.write_bool(kwargs['reset'])
+    return msg
+
 
 class CustomAttr(attr.BaseAttr):
     """
@@ -26,7 +50,22 @@ class CustomAttr(attr.BaseAttr):
         # Note that the reading order here should align with 
         # the writing order in CollectData() of CustomAttr.cs.
         self.data['custom_message'] = msg.read_string()
+        # self.data['grabbed']  = msg.read_bool()
         return self.data
+    
+    def GrabRelease(self, grab: bool):
+        msg = OutgoingMessage()
+        msg.write_int32(self.id)
+        msg.write_string('GrabRelease')
+        msg.write_bool(grab)
+        self.env.instance_channel.send_message(msg)
+
+    def Reset(self, reset: bool):
+        msg = OutgoingMessage()
+        msg.write_int32(self.id)
+        msg.write_string('GrabRelease')
+        msg.write_bool(reset)
+        self.env.instance_channel.send_message(msg)
 
     # An example of new API
     def CustomMessage(self, message: str):
