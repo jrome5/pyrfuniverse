@@ -5,9 +5,12 @@ from gym.utils import seeding
 import copy
 
 import cv2 #for camera stuff
-
+from os.path import join, dirname, abspath
 import sys
-sys.path.append("/home/jack/Documents/pyrfuniverse/")
+
+mypath = join(dirname(abspath(__file__)), "../../../")
+sys.path.append(mypath)
+# sys.path.append("/home/jack/Documents/pyrfuniverse/")
 import pyrfuniverse.attributes as attr
 from pyrfuniverse.envs import RFUniverseGymWrapper
 
@@ -365,9 +368,16 @@ if __name__ == "__main__":
         )
         
     import time
+    from os.path import exists
+    from os import makedirs
     steps_to_collect = 50000
     step = 0
     total_steps = 0
+    directory = 'episodes/rgbd_new/'
+    isExist = exists(directory)
+    if not isExist:
+        # Create a new directory because it does not exist
+        makedirs(directory)
     while total_steps < steps_to_collect:
         observations = []
         images = []
@@ -414,6 +424,7 @@ if __name__ == "__main__":
         
         #save file
         timestr = time.strftime("%Y%m%d-%H%M%S")
-        filename = "episodes/gripper_rgbd/faux_episode_" + timestr + "-" + str(step) + ".npz"
+
+        filename = directory + timestr + "-" + str(step) + ".npz"
         step = 0
         np.savez_compressed(filename, observation=observations, image=images, depth=depths, reward=rewards, is_first=is_firsts, is_last=is_lasts, is_terminal=is_lasts,action=actions, )
