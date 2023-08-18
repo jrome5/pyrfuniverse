@@ -151,7 +151,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             target_position = (corner_target+np.array([-0.1,0,0])) * self.scale
         curr_pos = self._get_eef_position() * self.scale
         pos_diff = (target_position - curr_pos)
-        np.clip(pos_diff, -1, 1)
+        pos_diff = np.clip(pos_diff, -1, 1)
         pos_ctrl = curr_pos + (pos_diff * delta) #keep same scale as agent
         self.instance_channel.set_action(
             'SetTransform',
@@ -159,7 +159,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             position=list(pos_ctrl),
         )
 
-        action.append(pos_diff)
+        action = np.asarray(pos_diff)
         grab_conf = -1
         distance = self._distance(target_position, pos_ctrl)
         if(distance < self.tolerance):
@@ -170,7 +170,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             self._set_gripper_width(0.4)
         elif(grab_conf > 0.5):
             self._set_gripper_width(0.01)
-        action.append(grab_conf)
+        action = np.append(action, grab_conf)
         self._step()
         self.target_grabbed = self._get_grabbed()
 
@@ -404,7 +404,7 @@ if __name__ == "__main__":
             is_firsts.append(is_first)
             is_lasts.append(is_last)
 
-            obs, image, depth, acts, reward, done = env.heuristic()
+            obs, image, depth, action, reward, done = env.heuristic()
             is_first = False
             is_last = done
             step += 1
