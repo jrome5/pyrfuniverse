@@ -17,10 +17,10 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     y_bound = 3.8
     franka_init_y = 4.8
     object2id = {
-        'franka': 1001,
+        'franka': 965874,
         'target': 1000,
         'cloth': 89212,
-        'gripper': 10010,
+        'gripper': 9658740,
         'camera': 123456,
         'agent': 1234
     }
@@ -35,7 +35,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             cloth_init_pos_min=(-4, 4, -3),
             cloth_init_pos_max=(0, 6, 0),
             executable_file=None,
-            assets=['HangingClothSolver', 'Camera', "my_franka_panda", "myfrankahand"],
+            assets=['HangingClothSolver', 'Camera', "my_franka_prefab", "myfrankahand"],
     ):
         super().__init__(
             executable_file=executable_file,
@@ -48,17 +48,29 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
         self.init_agent_pos_max = np.array([0, 6, 1])
         self.init_agent_pos_min = np.array([-2, 5, -1])
 
+        self.init_pos = [-1.85, 6, 0]#[0.15, 0.3, 0] * self.scale
+
+        self.gripper = "franka"
+
         self.cloth_init_pos_min = np.array(cloth_init_pos_min)
         self.cloth_init_pos_max = np.array(cloth_init_pos_max)
         self.cloth_init_rot_min = np.array([0, -90, 0])
         self.cloth_init_rot_max = np.array([0, -70, 0])
 
         self.cloth_init_pos = (-5, 6, 0)
-        self.reset_step_count = 500
+        self.reset_step_count = 300
         self.tolerance = 0.2
         self.resolution = 64
 
+        self.last_pos = []
+
         self.seed()
+        
+        self.prev_joint_positions = np.array([0.0 for i in range(8)], dtype=float)
+        self.controller = RFUniverseController("franka")
+        self.eef_orn = self.controller.bullet_client.getQuaternionFromEuler(
+            [0, math.pi/2, 0]) #-60,0,90
+        
         self._load_cloth()
         self._load_agent()
         self.t = 0
@@ -76,24 +88,32 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
 
         self.target_grabbed = False
 
+        self.instance_channel.set_action(
+            "SetTransform",
+            id=self.object2id['camera'],
+            position=list([-2.5, 2.5, -10])
+        )
+
     def step(self, action: np.ndarray):
         """
         Params:
             action: 4-d numpy array. -> move 3D and grab y/n
         """
 
-        pos_ctrl = np.array(action[:3]) * 0.005 * self.scale
+        pos_ctrl = action[:3] * 0.05
         curr_pos = self._get_eef_position() * self.scale
         pos_ctrl = curr_pos + pos_ctrl
 
         self.instance_channel.set_action(
-            'SetTransform',
-            id=self.object2id['agent'],
-            position=list(pos_ctrl),
+            "IKTargetDoMove",
+            id=self.object2id['franka'],
+            position=[pos_ctrl[0], pos_ctrl[1], pos_ctrl[2]],
+            duration=0.5,
+            speed_based=True
         )
 
         #if really confident, grab/release. else do nothing
-        grab_conf = action[3]
+        grab_conf = action[-1]
         if(grab_conf < -0.5):
             self._set_gripper_width(0.4)
         elif(grab_conf > 0.5):
@@ -138,37 +158,48 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     def heuristic(self):
         reward = -self.t
         action = []
-        delta = 0.005 * self.scale
-        corner_target = self._get_cloth_corner_positions()[:3]
+        delta = 0.2
+        corner_target = self._get_cloth_corner_positions()[3:]
+        joint_angles = self._get_joint_angles()
         target_position = []
         if(self.target_grabbed):
             target_position = self._get_cloth_position() * self.scale
-            target_position[0] -= (0.4 * self.scale)
+            target_position[0] += (0.4 * self.scale)
+            i = 0
         else:
-            target_position = (corner_target+np.array([-0.1,0,0])) * self.scale
+            target_position = (corner_target) * self.scale
         curr_pos = self._get_eef_position() * self.scale
         pos_diff = (target_position - curr_pos)
         np.clip(pos_diff, -1, 1)
         pos_ctrl = curr_pos + (pos_diff * delta) #keep same scale as agent
-        self.instance_channel.set_action(
-            'SetTransform',
-            id=self.object2id['agent'],
-            position=list(pos_ctrl),
-        )
 
-        action.append(pos_diff)
+        joint_positions = self.controller.calculate_ik_recursive(pos_ctrl/self.scale, eef_orn=self.eef_orn)
+
+
+        self._set_franka_joints(a)
+        self._wait_for_moving()
+        self._update_joint_positions()
+
         grab_conf = -1
         distance = self._distance(target_position, pos_ctrl)
-        if(distance < self.tolerance):
+        if(distance < (self.tolerance*0.75)):
             grab_conf = 1 # self.target_grabbed #do not regrab
         grab_conf += self.target_grabbed
-        #if really confident, grab/release. else do nothing
+        # if really confident, grab/release. else do nothing
         if(grab_conf < -0.5):
             self._set_gripper_width(0.4)
         elif(grab_conf > 0.5):
             self._set_gripper_width(0.01)
-        action.append(grab_conf)
+
         self._step()
+
+        curr_joint_angles = self._get_joint_angles()
+        joint_angle_diff = (curr_joint_angles - joint_angles)
+        action = np.asarray(pos_diff)
+        #action = np.interp(joint_angle_diff, (-3.141592e-3, 3.141592e-3), (-1, 1))#scale actions
+        # action = self._get_joint_velocities()
+        action = np.append(action, grab_conf)
+
         self.target_grabbed = self._get_grabbed()
 
         achieved_goal = pos_ctrl / self.scale
@@ -179,7 +210,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
         success = (distance < self.tolerance*self.scale)
 
         end_target = self._get_cloth_position()
-        end_target[0] -= 0.4
+        end_target[0] += 0.4
         achieved_goal = pos_ctrl / self.scale
         ep_success = self._distance(achieved_goal, end_target) < (0.05)
         done = self.t >= self.max_steps or ep_success
@@ -187,29 +218,65 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
         obs = self._get_obs()
         image = obs['image']
         depth = obs['depth']
-        return obs['observation'], image, depth, action, reward, done
+        return obs['observation'], depth, image, action, reward, done
 
     def _get_gripper_width(self) -> float:
-        gripper_joint_positions = copy.deepcopy(self.instance_channel.data[self.object2id['agent']]['joint_positions'])
+        gripper_joint_positions = copy.deepcopy(self.instance_channel.data[self.object2id['gripper']]['joint_positions'])
         return [(gripper_joint_positions[0] + gripper_joint_positions[1]) / self.scale]
 
     def _set_gripper_width(self, w: float):
-        w = (w / 2) * self.scale
+        if self.gripper == "robotiq":
+            w = 0 if w > 0.04 else 50
+            self.instance_channel.set_action(
+                'SetJointPosition',
+                id=self.object2id['gripper'],
+                joint_positions=[w, w],
+            )
+        else:
+            w = (w / 2) * self.scale
+            self.instance_channel.set_action(
+                'SetJointPosition',
+                id=self.object2id['gripper'],
+                joint_positions=[w, w],
+            )
+
+    def _set_franka_joints(self, a: np.ndarray):
         self.instance_channel.set_action(
-            'SetJointPosition',
-            id=self.object2id['agent'],
-            joint_positions=[w, w],
+            "SetJointPosition",
+            id=self.object2id['franka'],
+            joint_positions=list(a[0:7]),
+            speed_scales=list(a[8:15]),
+        )
+        self._step()
+
+    def _wait_for_moving(self):
+        while not (
+            self.instance_channel.data[self.object2id['franka']]["all_stable"]
+            and self.instance_channel.data[self.object2id['gripper']]["all_stable"]
+        ):
+            self._step()
+
+    def _update_joint_positions(self):
+        data = self.instance_channel.data
+        arm_joint_positions = data[self.object2id['franka']]["joint_positions"]
+        gripper_joint_positions = data[self.object2id['gripper']]["joint_positions"]
+
+        self.prev_joint_positions[0:7] = np.array(arm_joint_positions)
+        self.prev_joint_positions[7] = abs(gripper_joint_positions[0]) + abs(
+            gripper_joint_positions[1]
         )
 
     def _get_obs(self):
         catcher_position = self._get_eef_position()
         cloth_position = self._get_cloth_position()
 
+        joint_angles = []#self._get_joint_angles()
+
         gripper_width = self._get_gripper_width()
-        grabbed = np.asarray([self._get_grabbed()], dtype=np.float32)
+        grabbed = []# np.asarray([self._get_grabbed()], dtype=np.float32)
         image = self.get_image()
         depth = self.get_depth()
-        obs = np.concatenate((catcher_position, gripper_width, cloth_position, grabbed))
+        obs = np.concatenate((catcher_position, joint_angles, gripper_width, cloth_position, grabbed))
         return { 
             'observation': obs.copy(),
             'image' : image.copy(),
@@ -250,19 +317,41 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     def _load_agent(self):               
         self.asset_channel.set_action(
             action='InstanceObject',
-            name='myfrankahand',
-            id=self.object2id['agent']
+            name='my_franka_prefab',
+            id=self.object2id['franka']
         )
 
-        init_pos =self.np_random.uniform(low=self.init_agent_pos_min, high=self.init_agent_pos_max)
+        if self.gripper == "robotiq":
+            self.instance_channel.set_action(
+                "SetIKTargetOffset",
+                id=self.object2id['franka'],
+                position=[0, 0.251, 0],#0.261 #0.212 franka
+            )
+        else:
+            self.instance_channel.set_action(
+                "SetIKTargetOffset",
+                id=self.object2id['franka'],
+                position=[0, 0.212, 0],#0.261 #0.212 franka
+            )
+             
         self.instance_channel.set_action(
-            'SetTransform',
-            id=self.object2id['agent'],
-            position=list(init_pos),
+            "IKTargetDoMove",
+            id=965874,
+            position=[self.init_pos[0], self.init_pos[1], self.init_pos[2]],
+            duration=0,
+            speed_based=False,
         )
 
-        self._set_gripper_width(0.04)
+        self.instance_channel.set_action(
+            "IKTargetDoRotate",
+            id=self.object2id['franka'],
+            vector3=[-60, 0, 90],
+            duration=0,
+            speed_based=False,
+        )
 
+        self.controller.reset()
+        self._set_gripper_width(0.04)
 
         for i in range(5):
             self._step()
@@ -273,6 +362,15 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             name='HangingClothSolver',
             id=self.object2id['cloth']
        )
+        
+        disp = (2 * np.random.rand(3) - 1) * 0.1
+
+        self.instance_channel.set_action(
+            'SetTransform',
+            id=self.object2id['cloth'],
+            position=[disp[0] -5, disp[1] +7.5, disp[2]+1],
+            rotation=[0, 45, 0]
+        )
 
         self.instance_channel.set_action(
             'SetSolverParameters',
@@ -303,12 +401,22 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     def _destroy_agent(self):
         self.instance_channel.set_action(
             action='Destroy',
-            id=self.object2id['agent']
+            id=self.object2id['franka']
         )
         self._step()   
 
+    #get joint angles in rads
+    def _get_joint_angles(self):
+        return np.array(self.instance_channel.data[self.object2id['franka']]['joint_positions']) / (180 / 3.14159265)
+    
+    def _get_joint_velocities(self):
+        return np.array(self.instance_channel.data[self.object2id['franka']]['joint_velocities'])# / (180 / 3.14159265)
+
     def _get_eef_position(self):
-        return np.array(self.instance_channel.data[self.object2id['agent']]['position']) / self.scale
+        if self.gripper == "robotiq":
+            return np.array(self.instance_channel.data[self.object2id['gripper']]['positions'][7]) / self.scale #franka pos 3
+        else:
+            return np.array(self.instance_channel.data[self.object2id['gripper']]['positions'][3]) / self.scale #franka pos 3
     
     def _get_cloth_position(self):
         try:
@@ -341,17 +449,17 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
 
     def _compute_reward(self, obs=None):
         corner_positions = self._get_cloth_corner_positions()
-        corner1 = corner_positions[3:]
+        corner1 = corner_positions[:3]
         gripper_pos = self._get_eef_position()
         distance = self._distance(gripper_pos, corner1)
         return -distance
     
     def _compute_reward2(self, obs=None):
         corner_positions = self._get_cloth_corner_positions()
-        corner1 = corner_positions[3:]
+        corner1 = corner_positions[:3]
         cloth_pos = self._get_cloth_position()#obs[6:9]
         target_pos = cloth_pos
-        target_pos[0] -= 0.4 
+        target_pos[0] += 0.4
         distance = self._distance(corner1, target_pos)
         return -distance
     
