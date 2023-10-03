@@ -8,6 +8,7 @@ import cv2 #for camera stuff
 import time
 
 import sys
+from os.path import join, dirname, abspath
 
 mypath = join(dirname(abspath(__file__)), "../../../")
 sys.path.append(mypath)
@@ -196,7 +197,10 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
 
         joint_positions = self.controller.calculate_ik_recursive(pos_ctrl/self.scale, eef_orn=self.eef_orn)
 
-
+        joint_positions.append(float(1))
+        velocities = [0.25 for i in range(8)]
+        a = np.array(joint_positions + velocities)
+        
         self._set_franka_joints(a)
         self._wait_for_moving()
         self._update_joint_positions()
