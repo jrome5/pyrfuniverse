@@ -155,7 +155,21 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
+    
+    def rerender(self):
+        self.instance_channel.set_action(
+            'GetRGB',
+            id=self.object2id['camera'],
+            width=256,
+            height=256,
+            fov=42
+        )
 
+        self._step() #requires a step to generate images
+        image_np = np.frombuffer(self.instance_channel.data[self.object2id['camera']]['rgb'], dtype=np.uint8)
+        image_np = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+        return image_np.copy()
     def render(self, mode='human'):
         self._step()
 
@@ -483,6 +497,7 @@ def thread_function(name):
     while total_steps < steps_to_collect:
         observations = []
         images = []
+        images256 = []
         depths = []
         actions = []
         rewards = []
@@ -491,6 +506,7 @@ def thread_function(name):
 
         obs = env.reset()
         image = obs['image']
+        image256 = env.rerender()
         depth = obs['depth']
         obs = obs['observation']
         action = np.zeros(env.action_space.shape)
@@ -500,6 +516,7 @@ def thread_function(name):
         while True:
             observations.append(obs)
             images.append(image)
+            images256.append(image256)
             depths.append(depth)
             actions.append(action)
             rewards.append(reward)
@@ -507,6 +524,7 @@ def thread_function(name):
             is_lasts.append(is_last)
 
             obs, depth, image, action, reward, done = env.heuristic()
+            image256 = env.rerender()
             is_first = False
             is_last = done
             step += 1
@@ -514,6 +532,7 @@ def thread_function(name):
             if done:
                 observations.append(obs)
                 images.append(image)
+                images256.append(image256)
                 depths.append(depth)
                 actions.append(action)
                 rewards.append(reward)
@@ -528,6 +547,7 @@ def thread_function(name):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = "episodes/normal_fixed_IK/faux_episode_editor_" + timestr + "-" + str(name) + "_" + str(step) + ".npz"
         step = 0
+        np.savez_compressed(filename, observation=observations, image=images, largeimgs=images256, depth=depths, reward=rewards, is_first=is_firsts, is_last=is_lasts, is_terminal=is_lasts,action=actions, )
 
 if __name__ == "__main__":
     import threading
