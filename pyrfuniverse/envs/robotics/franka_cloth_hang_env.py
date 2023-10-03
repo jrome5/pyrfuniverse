@@ -5,11 +5,15 @@ from gym.utils import seeding
 import copy
 
 import cv2 #for camera stuff
+import time
 
 import sys
 sys.path.append("/home/jack/Documents/pyrfuniverse/")
 import pyrfuniverse.attributes as attr
 from pyrfuniverse.envs import RFUniverseGymWrapper
+
+from pyrfuniverse.utils.controller import RFUniverseController
+
 
 class FrankaClothHangEnv(RFUniverseGymWrapper):
     metadata = {'render.modes': ['human', 'rgb_array']}
@@ -467,15 +471,15 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
     def _distance(self, pos1, pos2):
         return np.linalg.norm(pos1 - pos2, axis=-1)
 
-if __name__ == "__main__":
+def thread_function(name):
     env = FrankaClothHangEnv(
         executable_file="@editor",
         )
-        
-    import time
-    steps_to_collect = 50000
+    
+    
     step = 0
     total_steps = 0
+    steps_to_collect = 100000/4
     while total_steps < steps_to_collect:
         observations = []
         images = []
@@ -502,7 +506,7 @@ if __name__ == "__main__":
             is_firsts.append(is_first)
             is_lasts.append(is_last)
 
-            obs, image, depth, acts, reward, done = env.heuristic()
+            obs, depth, image, action, reward, done = env.heuristic()
             is_first = False
             is_last = done
             step += 1
@@ -516,12 +520,27 @@ if __name__ == "__main__":
                 is_firsts.append(is_first)
                 is_lasts.append(is_last)
                 break
-            
+
         total_steps += step
-        print(f'episode done, length: {step} sum of rewards: {np.sum(rewards)}, {total_steps}/{steps_to_collect} complete')
+        print(f'episode done, thread: {name} length: {step} sum of rewards: {np.sum(rewards)}, {total_steps}/{steps_to_collect} complete')
         
         #save file
         timestr = time.strftime("%Y%m%d-%H%M%S")
-        filename = "episodes/gripper_rgbd/faux_episode_" + timestr + "-" + str(step) + ".npz"
+        filename = "episodes/normal_fixed_IK/faux_episode_editor_" + timestr + "-" + str(name) + "_" + str(step) + ".npz"
         step = 0
-        np.savez_compressed(filename, observation=observations, image=images, depth=depths, reward=rewards, is_first=is_firsts, is_last=is_lasts, is_terminal=is_lasts,action=actions, )
+
+if __name__ == "__main__":
+    import threading
+    import logging
+    threads = list()
+    for index in range(4):
+        logging.info("Main    : create and start thread %d.", index)
+        x = threading.Thread(target=thread_function, args=(index,))
+        threads.append(x)
+        time.sleep(0.5)
+        x.start()
+
+    for index, thread in enumerate(threads):
+        logging.info("Main    : before joining thread %d.", index)
+        thread.join()
+        logging.info("Main    : thread %d done", index)
