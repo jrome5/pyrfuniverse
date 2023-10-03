@@ -8,7 +8,10 @@ import cv2 #for camera stuff
 import time
 
 import sys
-sys.path.append("/home/jack/Documents/pyrfuniverse/")
+
+mypath = join(dirname(abspath(__file__)), "../../../")
+sys.path.append(mypath)
+# sys.path.append("/home/jack/Documents/pyrfuniverse/")
 import pyrfuniverse.attributes as attr
 from pyrfuniverse.envs import RFUniverseGymWrapper
 
@@ -188,7 +191,7 @@ class FrankaClothHangEnv(RFUniverseGymWrapper):
             target_position = (corner_target) * self.scale
         curr_pos = self._get_eef_position() * self.scale
         pos_diff = (target_position - curr_pos)
-        np.clip(pos_diff, -1, 1)
+        pos_diff = np.clip(pos_diff, -1, 1)
         pos_ctrl = curr_pos + (pos_diff * delta) #keep same scale as agent
 
         joint_positions = self.controller.calculate_ik_recursive(pos_ctrl/self.scale, eef_orn=self.eef_orn)
