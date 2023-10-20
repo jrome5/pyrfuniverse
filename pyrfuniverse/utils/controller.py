@@ -82,11 +82,8 @@ class RFUniverseController:
                 self.revolute_joint_ids.append(j)
                 index = index + 1
 
-        # print('pybullet', self.get_link_state(self.end_effector_id))
-
     def _parse_robot_params(self):
         if self.robot_name == "franka":
-            self.robot_urdf = "franka_panda/panda.urdf"
             self.end_effector_id = 11
             self.num_dof = 7
             return
@@ -118,17 +115,20 @@ class RFUniverseController:
 
         return pybullet_joint_pos
 
-    def calculate_ik(self, unity_eef_pos, eef_orn=None) -> list:
+    def calculate_ik(self, unity_eef_pos, eef_orn=None, end_effector_id=None) -> list:
         if eef_orn is None:
             eef_orn = self.bullet_client.getQuaternionFromEuler(
                 [math.pi / 2.0, 0.0, 0.0]
             )
 
+        if end_effector_id is None:
+            end_effector_id = self.end_effector_id
+
         eef_pos = self.get_bullet_pos_from_unity(unity_eef_pos)
 
         joint_positions = self.bullet_client.calculateInverseKinematics(
             self.robot,
-            self.end_effector_id,
+            end_effector_id,
             eef_pos,
             eef_orn,
             ll,
@@ -143,17 +143,20 @@ class RFUniverseController:
 
         return self.get_unity_joint_pos_from_pybullet(joint_positions)
 
-    def calculate_ik_recursive(self, unity_eef_pos, eef_orn=None) -> list:
+    def calculate_ik_recursive(self, unity_eef_pos, eef_orn=None, end_effector_id=None) -> list:
         if eef_orn is None:
             eef_orn = self.bullet_client.getQuaternionFromEuler(
                 [math.pi / 2.0, 0.0, 0.0]
             )
 
+        if end_effector_id is None:
+            end_effector_id = self.end_effector_id
+
         eef_pos = self.get_bullet_pos_from_unity(unity_eef_pos)
         for i in range(20):
             joint_positions = self.bullet_client.calculateInverseKinematics(
                 self.robot,
-                self.end_effector_id,
+                end_effector_id,
                 eef_pos,
                 eef_orn,
                 ll,
