@@ -78,7 +78,7 @@ class HangingClothAttr(attr.BaseAttr):
         self.data['force_zone_intensity'] = msg.read_float32()
         self.data['force_zone_turbulence'] = msg.read_float32()
         self.data['force_zone_turbulence_frequency'] = msg.read_float32()
-        self.data['corner_positions'] = [msg.read_float32() for _ in range(6)]
+        self.data['corner_positions'] = [msg.read_float32() for _ in range(12)] #change back to 6 for cloth hang
         # self.data['collision'] = msg.read_bool()
         self.data['grabbed'] = msg.read_bool()
         # self.data['contacts'] = msg.read_float32_list()
